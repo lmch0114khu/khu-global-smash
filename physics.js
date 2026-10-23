@@ -40,7 +40,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
   const gone = new Set(); // query world에서 부서진 덩어리 충돌체 handle
   // 잔해(떨어져 나온 덩어리)가 이후 폭발에 이만큼 더 휘말리면 가루로 사라진다. 패널 슬라이더(setMaxHits).
   // 0이면 멈추자마자(그 전에 휘말려도) 사라지고, Infinity면 폭심 바로 옆이 아닌 한 사라지지 않는다.
-  let maxHits = 2;
+  let maxHits = 4;
   const poofs = []; // 폭심 밖에서 가루가 된 잔해 자리 { x, y, z, size, color }. 연출이 drainPoofs로 가져간다
   const poof = (pc, t) => poofs.push({ x: t.x, y: t.y, z: t.z, size: Math.max(pc.size.x, pc.size.y, pc.size.z), color: blocks[pc.members[0]].wall });
 

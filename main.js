@@ -362,8 +362,34 @@ function updateUI(dt) { // 0.25초마다
     return li;
   }));
 }
-addEventListener('keydown', (e) => { // R: 리셋. 한글 입력 상태(ㄱ)에서도 되게 key 대신 code로, Ctrl+R 새로고침은 그대로
-  if (e.code !== 'KeyR' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+// --- 무기 핫바: 화면 아래 가운데. WEAPONS에 무기를 넣으면 칸(1, 2, 3, …)과 숫자키가 함께 생긴다 ---
+// ponytail: 지금은 미사일뿐이라 고르면 칸 강조만 바뀐다. 무기가 늘면 고른 무기를 tools.fire에 넘긴다.
+const MISSILE_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><g transform="rotate(45 16 16)">
+  <path d="M16 3c3 3 4 7 4 11v9h-8v-9c0-4 1-8 4-11z" fill="#ebe7df"/>
+  <path d="M16 3c1.6 1.6 2.7 3.6 3.3 5.6h-6.6C13.3 6.6 14.4 4.6 16 3z" fill="#d23c2c"/>
+  <path d="M12 16l-4 5v3l4-2zM20 16l4 5v3l-4-2z" fill="#9aa3ad"/>
+  <rect x="13" y="23" width="6" height="2" fill="#6b7280"/>
+  <path d="M13.5 25h5L16 30z" fill="#ffb347"/>
+</g></svg>`;
+const WEAPONS = [{ name: '미사일', icon: MISSILE_ICON }];
+const slots = WEAPONS.map((w, i) => {
+  const el = document.createElement('button');
+  el.className = 'slot';
+  el.title = `${w.name} (${i + 1})`;
+  el.innerHTML = `<i>${i + 1}</i>${w.icon}`;
+  el.addEventListener('click', () => selectWeapon(i));
+  document.getElementById('hotbar').append(el);
+  return el;
+});
+const selectWeapon = (i) => slots.forEach((el, n) => el.classList.toggle('on', n === i));
+selectWeapon(0);
+
+// 키보드: 한글 입력 상태(ㄱ)에서도 되게 key 대신 code로 본다. Ctrl+R 새로고침 같은 조합키는 그대로 둔다.
+addEventListener('keydown', (e) => {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  const digit = /^(?:Digit|Numpad)([1-9])$/.exec(e.code); // 1~9: 무기 고르기
+  if (digit && WEAPONS[digit[1] - 1]) selectWeapon(digit[1] - 1);
+  if (e.code !== 'KeyR') return; // R: 리셋
   physics.reset();
   tools.reset();
   resetGround();
