@@ -29,7 +29,6 @@ const groups = (member, filter) => (member << 16) | filter;
 // 겹친 채 부딪히면 서로 밀쳐내며 튀고, 계속 떨려서 잠들지 않아 물리 계산이 무거워진다.
 const PASS_TIME = 0.35;
 const MAX_LIFE = 6; // 이 시간(초)이 지나도 덜덜 떨기만 하는 덩어리는 강제로 굳힌다
-const MAX_HITS = 3; // 폭발에 이만큼 휘말린 잔해는 가루로 사라진다 (떨어져 나온 폭발이 1번째)
 
 export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heightAt }) {
   await RAPIER.init();
@@ -39,6 +38,11 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
   // 레이 검사에서 거른다 (지우면 검사 구조를 갱신하는 step이 폭발마다 6~10ms 걸린다).
   let query = null;
   const gone = new Set(); // query world에서 부서진 덩어리 충돌체 handle
+  // 잔해(떨어져 나온 덩어리)가 이후 폭발에 이만큼 더 휘말리면 가루로 사라진다. 패널 슬라이더(setMaxHits).
+  // 0이면 멈추자마자(그 전에 휘말려도) 사라지고, Infinity면 폭심 바로 옆이 아닌 한 사라지지 않는다.
+  let maxHits = 2;
+  const poofs = []; // 폭심 밖에서 가루가 된 잔해 자리 { x, y, z, size, color }. 연출이 drainPoofs로 가져간다
+  const poof = (pc, t) => poofs.push({ x: t.x, y: t.y, z: t.z, size: Math.max(pc.size.x, pc.size.y, pc.size.z), color: blocks[pc.members[0]].wall });
 
   // 지형: 렌더용 지형 메시와 똑같은 삼각형 (높이맵 충돌체는 대각선 방향이 달라 파편이 뜨거나 묻힐 수 있다)
   const terrainDesc = () => RAPIER.ColliderDesc.trimesh(
@@ -268,7 +272,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
       state[i] = PIECE;
     }
     const { size, mid, axis } = fitBox(members, c);
-    const pc = { body, members, locals: members.map((i) => localOf(i, c)), size, mid, axis, still: 0, age: 0, hits: 1 };
+    const pc = { body, members, locals: members.map((i) => localOf(i, c)), size, mid, axis, still: 0, age: 0, hits: 0 };
     world.createCollider(boxOf(pc).setCollisionGroups(groups(G_PIECE, G_TERRAIN | G_PIECE)), body);
     liven(pc);
     const mass = body.mass();
@@ -281,6 +285,11 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
   const boxOf = (pc) => cuboid(pc.size, 0.47).setTranslation(pc.mid.x, pc.mid.y, pc.mid.z).setRotation(pc.axis); // 바디 기준
   // 멈춘 덩어리: 바디를 지우고 같은 상자를 바디 없는 정적 충돌체로 남긴다 (고정 바디로 바꿔 두는 것보다 step이 가볍다)
   const settle = (pc) => {
+    if (maxHits === 0) { // 잔해를 남기지 않는 설정
+      poof(pc, pc.body.translation());
+      removePiece(pc);
+      return;
+    }
     const col = pc.body.collider(0);
     const t = pc.body.translation();
     const r = pc.body.rotation();
@@ -310,7 +319,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
   };
 
   // point 둘레 radius 안을 부순다. power: 반지름 끝에서 0이 되는 초기 속도(m/s).
-  // 반환값: broken = 부서진 블록 번호들 (연출에서 먼지·조각 색을 고르는 데 쓴다), poofs = 가루가 된 잔해 자리.
+  // 반환값: 부서진 블록 번호들 (연출에서 먼지·조각 색을 고르는 데 쓴다).
   function explode(point, radius = 8, power = 30) {
     const reach = radius + BLOCK;
     const dist = (x, y, z) => Math.hypot(x - point.x, y - point.y, z - point.z);
@@ -318,15 +327,14 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
     const kick = (x, y, z, k) => dir.set(x - point.x, y - point.y + 2, z - point.z).normalize().multiplyScalar(power * k);
 
     // 이미 움직이는 덩어리는 한 번 더 밀고, 근처 잔해(받침이 사라졌을 수 있음)는 깨운다.
-    // 폭심 바로 옆이거나 MAX_HITS번째 휘말린 잔해는 가루로 (같은 곳을 계속 쏘면 같은 조각만 튀며 쌓이지 않게).
-    const poofs = []; // 폭심 밖에서 가루가 된 잔해 { x, y, z, size, color } (연출용)
+    // 폭심 바로 옆이거나 maxHits번째 휘말린 잔해는 가루로 (같은 곳을 계속 쏘면 같은 조각만 튀며 쌓이지 않게).
     for (const pc of [...active, ...rubble]) {
       const t = pc.body ? pc.body.translation() : pc.pose.t;
       const d = dist(t.x, t.y, t.z);
       if (d > reach * 1.3) continue;
       const center = d < reach * (1 - DUST_ZONE);
-      if (center || ++pc.hits >= MAX_HITS) {
-        if (!center) poofs.push({ x: t.x, y: t.y, z: t.z, size: Math.max(pc.size.x, pc.size.y, pc.size.z), color: blocks[pc.members[0]].wall });
+      if (center || ++pc.hits >= maxHits) {
+        if (!center) poof(pc, t);
         removePiece(pc);
         continue;
       }
@@ -379,7 +387,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
     }
     while (active.size > MAX_ACTIVE) removePiece(active.values().next().value); // 상한: 가장 오래된 덩어리부터
     dirty = true;
-    return { broken, poofs };
+    return broken;
   }
 
   // 조준용 레이 검사: 지형·건물(query world)과 잔해·덩어리(시뮬레이션 world) 중 처음 맞는 곳.
@@ -408,6 +416,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
     live = [];
     state.fill(INTACT);
     for (const b of buildings) b.destroyed = 0;
+    poofs.length = 0;
     buildChunks();
     mesh.instanceMatrix.array.set(original);
     mesh.instanceMatrix.clearUpdateRanges();
@@ -466,5 +475,8 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
     return { active: active.size, rubble: rubble.size, destroyed, ratio: destroyed / total, chunks: chunks.length, live: live.length };
   };
 
-  return { explode, step, stats, raycast, reset };
+  const setMaxHits = (v) => (maxHits = v);
+  const drainPoofs = () => poofs.splice(0);
+
+  return { explode, step, stats, raycast, reset, setMaxHits, drainPoofs };
 }

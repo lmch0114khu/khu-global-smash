@@ -383,6 +383,13 @@ speedInput.addEventListener('input', () => {
   speedVal.textContent = `${(+speedInput.value).toFixed(2)}×`;
 });
 tools.setSpeed(+speedInput.value);
+const hitsInput = document.getElementById('hits'); // 잔해 소멸: 0~9번, 맨 끝(10)은 불가
+const hitsVal = document.getElementById('hitsVal');
+hitsInput.addEventListener('input', () => {
+  physics.setMaxHits(+hitsInput.value > 9 ? Infinity : +hitsInput.value);
+  hitsVal.textContent = +hitsInput.value > 9 ? '불가' : `${hitsInput.value}번`;
+});
+hitsInput.dispatchEvent(new Event('input')); // 새로고침 때 브라우저가 되살린 값도 반영
 const volumeInput = document.getElementById('volume');
 const volumeVal = document.getElementById('volumeVal');
 volumeInput.addEventListener('input', () => {

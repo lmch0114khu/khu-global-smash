@@ -186,7 +186,7 @@ export function createTools({ scene, camera, physics, heightAt, blocks, onGround
   const tmp = new THREE.Vector3();
   const vel = new THREE.Vector3();
   function explode(point) {
-    const { broken: hits, poofs } = physics.explode(point, radius, POWER * Math.sqrt(f));
+    const hits = physics.explode(point, radius, POWER * Math.sqrt(f));
     const ground = point.y - heightAt(point.x, point.z) < 2; // 땅에 맞음 → 파인 자국 (main.js)
     if (ground) onGround?.(point, radius);
     const g = f ** 0.8; // 연출 크기 배율
@@ -205,13 +205,6 @@ export function createTools({ scene, camera, physics, heightAt, blocks, onGround
     for (let k = 0; k < count(12); k++) { // 솟구치는 검은 연기 기둥
       vel.set(rand(-0.3, 0.3), 1, rand(-0.3, 0.3)).normalize().multiplyScalar(rand(7, 15) * g);
       spawn(smoke, tmp.copy(point), vel, rand(2.2, 3.6), 1.5 * g, rand(5, 9) * g, '#4b4742', '#8c8780', { drag: 0.9 });
-    }
-    for (const p of poofs) { // 여러 번 맞아 가루가 된 잔해 자리에 작은 먼지
-      const dust = new THREE.Color(p.color).lerp(new THREE.Color('#b8b1a5'), 0.55);
-      for (let k = 0; k < 3; k++) {
-        vel.set(rand(-1, 1), rand(0.2, 1), rand(-1, 1)).normalize().multiplyScalar(rand(1.5, 4));
-        spawn(smoke, tmp.set(p.x, p.y, p.z), vel, rand(1.2, 2), p.size * 0.3, p.size * rand(0.5, 0.8), dust, '#d8d3ca', { drag: 1.5 });
-      }
     }
     for (let k = 0; k < count(45); k++) { // 튀는 작은 파편 조각 (물리 없이 보기용)
       vel.set(rand(-1, 1), rand(0.2, 1.2), rand(-1, 1)).normalize().multiplyScalar(rand(10, 30) * Math.sqrt(f));
@@ -285,6 +278,13 @@ export function createTools({ scene, camera, physics, heightAt, blocks, onGround
 
   function update(dt) {
     updateMissiles(dt);
+    for (const p of physics.drainPoofs()) { // 가루가 된 잔해 자리에 작은 먼지
+      const dust = new THREE.Color(p.color).lerp(new THREE.Color('#b8b1a5'), 0.55);
+      for (let k = 0; k < 3; k++) {
+        vel.set(rand(-1, 1), rand(0.2, 1), rand(-1, 1)).normalize().multiplyScalar(rand(1.5, 4));
+        spawn(smoke, tmp.set(p.x, p.y, p.z), vel, rand(1.2, 2), p.size * 0.3, p.size * rand(0.5, 0.8), dust, '#d8d3ca', { drag: 1.5 });
+      }
+    }
     updatePool(smoke, dt);
     updatePool(fireballs, dt);
     updatePool(chips, dt);
