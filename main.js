@@ -364,13 +364,9 @@ function updateUI(dt) { // 0.25초마다
 }
 // --- 무기 핫바: 화면 아래 가운데. WEAPONS에 무기를 넣으면 칸(1, 2, 3, …)과 숫자키가 함께 생긴다 ---
 // ponytail: 지금은 미사일뿐이라 고르면 칸 강조만 바뀐다. 무기가 늘면 고른 무기를 tools.fire에 넘긴다.
-const MISSILE_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><g transform="rotate(45 16 16)">
-  <path d="M16 3c3 3 4 7 4 11v9h-8v-9c0-4 1-8 4-11z" fill="#ebe7df"/>
-  <path d="M16 3c1.6 1.6 2.7 3.6 3.3 5.6h-6.6C13.3 6.6 14.4 4.6 16 3z" fill="#d23c2c"/>
-  <path d="M12 16l-4 5v3l4-2zM20 16l4 5v3l-4-2z" fill="#9aa3ad"/>
-  <rect x="13" y="23" width="6" height="2" fill="#6b7280"/>
-  <path d="M13.5 25h5L16 30z" fill="#ffb347"/>
-</g></svg>`;
+// 아이콘은 한 가지 색(currentColor) 실루엣: 칸 글자색을 따라 고른 칸만 밝아진다
+const MISSILE_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><path transform="rotate(45 16 16)" fill="currentColor"
+  d="M16 3c3 3 4 7 4 11v9h-8v-9c0-4 1-8 4-11zM12 16l-4 5v3l4-2zM20 16l4 5v3l-4-2zM14 24h4v2h-4z"/></svg>`;
 const WEAPONS = [{ name: '미사일', icon: MISSILE_ICON }];
 const slots = WEAPONS.map((w, i) => {
   const el = document.createElement('button');
