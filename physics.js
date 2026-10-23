@@ -29,6 +29,7 @@ const groups = (member, filter) => (member << 16) | filter;
 // 겹친 채 부딪히면 서로 밀쳐내며 튀고, 계속 떨려서 잠들지 않아 물리 계산이 무거워진다.
 const PASS_TIME = 0.35;
 const MAX_LIFE = 6; // 이 시간(초)이 지나도 덜덜 떨기만 하는 덩어리는 강제로 굳힌다
+const MAX_HITS = 3; // 폭발에 이만큼 휘말린 잔해는 가루로 사라진다 (떨어져 나온 폭발이 1번째)
 
 export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heightAt }) {
   await RAPIER.init();
@@ -267,7 +268,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
       state[i] = PIECE;
     }
     const { size, mid, axis } = fitBox(members, c);
-    const pc = { body, members, locals: members.map((i) => localOf(i, c)), size, mid, axis, still: 0, age: 0 };
+    const pc = { body, members, locals: members.map((i) => localOf(i, c)), size, mid, axis, still: 0, age: 0, hits: 1 };
     world.createCollider(boxOf(pc).setCollisionGroups(groups(G_PIECE, G_TERRAIN | G_PIECE)), body);
     liven(pc);
     const mass = body.mass();
@@ -309,19 +310,23 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
   };
 
   // point 둘레 radius 안을 부순다. power: 반지름 끝에서 0이 되는 초기 속도(m/s).
-  // 반환값: 부서진 블록 번호들 (연출에서 먼지·조각 색을 고르는 데 쓴다).
+  // 반환값: broken = 부서진 블록 번호들 (연출에서 먼지·조각 색을 고르는 데 쓴다), poofs = 가루가 된 잔해 자리.
   function explode(point, radius = 8, power = 30) {
     const reach = radius + BLOCK;
     const dist = (x, y, z) => Math.hypot(x - point.x, y - point.y, z - point.z);
     const dir = new THREE.Vector3();
     const kick = (x, y, z, k) => dir.set(x - point.x, y - point.y + 2, z - point.z).normalize().multiplyScalar(power * k);
 
-    // 이미 움직이는 덩어리는 한 번 더 밀고, 근처 잔해(받침이 사라졌을 수 있음)는 깨운다. 폭심 바로 옆 잔해는 가루로.
+    // 이미 움직이는 덩어리는 한 번 더 밀고, 근처 잔해(받침이 사라졌을 수 있음)는 깨운다.
+    // 폭심 바로 옆이거나 MAX_HITS번째 휘말린 잔해는 가루로 (같은 곳을 계속 쏘면 같은 조각만 튀며 쌓이지 않게).
+    const poofs = []; // 폭심 밖에서 가루가 된 잔해 { x, y, z, size, color } (연출용)
     for (const pc of [...active, ...rubble]) {
       const t = pc.body ? pc.body.translation() : pc.pose.t;
       const d = dist(t.x, t.y, t.z);
       if (d > reach * 1.3) continue;
-      if (d < reach * (1 - DUST_ZONE)) {
+      const center = d < reach * (1 - DUST_ZONE);
+      if (center || ++pc.hits >= MAX_HITS) {
+        if (!center) poofs.push({ x: t.x, y: t.y, z: t.z, size: Math.max(pc.size.x, pc.size.y, pc.size.z), color: blocks[pc.members[0]].wall });
         removePiece(pc);
         continue;
       }
@@ -374,7 +379,7 @@ export async function createPhysics({ blocks, mesh, terrainGeo, buildings, heigh
     }
     while (active.size > MAX_ACTIVE) removePiece(active.values().next().value); // 상한: 가장 오래된 덩어리부터
     dirty = true;
-    return broken;
+    return { broken, poofs };
   }
 
   // 조준용 레이 검사: 지형·건물(query world)과 잔해·덩어리(시뮬레이션 world) 중 처음 맞는 곳.
