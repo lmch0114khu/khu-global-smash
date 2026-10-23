@@ -339,7 +339,7 @@ for (const b of buildings) {
   scene.add(label);
 }
 
-// --- 미사일·연출·효과음, 파괴율 패널, 리셋 버튼·슬라이더 ---
+// --- 미사일·연출·효과음, 파괴율 패널, 슬라이더, R 리셋 ---
 const tools = createTools({ scene, camera, physics, heightAt, blocks, onGround: crater });
 const totalEl = document.getElementById('total');
 const listEl = document.getElementById('list');
@@ -362,7 +362,8 @@ function updateUI(dt) { // 0.25초마다
     return li;
   }));
 }
-document.getElementById('reset').addEventListener('click', () => {
+addEventListener('keydown', (e) => { // R: 리셋. 한글 입력 상태(ㄱ)에서도 되게 key 대신 code로, Ctrl+R 새로고침은 그대로
+  if (e.code !== 'KeyR' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
   physics.reset();
   tools.reset();
   resetGround();
