@@ -1,12 +1,13 @@
-// 寃쏀씗??숆탳 援?젣罹좏띁??OSM ?곗씠??Overpass API)? ?쒓퀬(SRTM 30m, OpenTopoData)瑜??대젮諛쏆븘 campus.json??留뚮뱺??
-// ?ㅽ뻾: node scripts/fetch-osm.mjs  (?ㅽ듃?뚰겕 ?꾩슂, ??1~2遺? ??踰??ㅽ뻾??寃곌낵瑜?而ㅻ컠???먮㈃ ?댄썑??遺덊븘??
-// ?곗씠??짤 OpenStreetMap contributors, ODbL 1.0 / SRTM: NASA, ?쇰툝由??꾨찓??//
-// ?ㅼ떆 ?ㅽ뻾?대룄 ?좎??섎뒗 寃?
-//  - overrides.json (???ㅽ겕由쏀듃??嫄대뱶由ъ? ?딆쓬, ?고??꾩뿉 ??뼱?)
-//  - campus.json?먯꽌 吏곸젒 梨꾩슫 嫄대Ъ ?대쫫 (OSM???대쫫???놁쓣 ?뚮쭔 ?댁쟾 媛믪쓣 ?댁뼱諛쏆쓬)
+// 경희대학교 국제캠퍼스 OSM 데이터(Overpass API)와 표고(SRTM 30m, OpenTopoData)를 내려받아 campus.json을 만든다.
+// 실행: node scripts/fetch-osm.mjs  (네트워크 필요, 약 1~2분. 한 번 실행한 결과를 커밋해 두면 이후엔 불필요)
+// 데이터 © OpenStreetMap contributors, ODbL 1.0 / SRTM: NASA, 퍼블릭 도메인
+//
+// 다시 실행해도 유지되는 것:
+//  - overrides.json (이 스크립트는 건드리지 않음, 런타임에 덮어씀)
+//  - campus.json에서 직접 채운 건물 이름 (OSM에 이름이 없을 때만 이전 값을 이어받음)
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const REL_ID = 11246784; // 寃쏀씗??숆탳 援?젣罹좏띁??寃쎄퀎 relation
+const REL_ID = 11246784; // 경희대학교 국제캠퍼스 경계 relation
 const OUT = new URL('../campus.json', import.meta.url);
 const MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -14,12 +15,13 @@ const MIRRORS = [
   'https://overpass.private.coffee/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
-const ELEVATION_API = 'https://api.opentopodata.org/v1/srtm30m'; // 怨듦컻 API: ?붿껌??100?? 珥덈떦 1?? ?섎（ 1000??const TERRAIN_STEP = 20; // m. SRTM ?댁긽?꾧? 30m???대낫??珥섏킌?대룄 ?뺣낫媛 ?섏? ?딆쓬
+const ELEVATION_API = 'https://api.opentopodata.org/v1/srtm30m'; // 공개 API: 요청당 100점, 초당 1회, 하루 1000회
+const TERRAIN_STEP = 20; // m. SRTM 해상도가 30m라 이보다 촘촘해도 정보가 늘지 않음
 const ATTEMPTS = 8;
 const UA = 'khu-global-smash/0.1 (scripts/fetch-osm.mjs)';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 泥?out? 寃쎄퀎 relation, ??踰덉㎏ out? 寃쎄퀎 ??嫄몄튇 寃??ы븿) ?붿냼??
+// 첫 out은 경계 relation, 두 번째 out은 경계 안(걸친 것 포함) 요소들.
 const QUERY = `[out:json][timeout:120];
 rel(${REL_ID});
 out geom;
@@ -39,15 +41,15 @@ map_to_area->.a;
 );
 out geom;`;
 
-// 吏??諛깆삤???ъ떆?? task(attempt)??attempt濡?誘몃윭瑜?怨좊? ???덈떎.
+// 지수 백오프 재시도. task(attempt)는 attempt로 미러를 고를 수 있다.
 async function withRetry(task) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await task(attempt);
     } catch (err) {
-      if (attempt === ATTEMPTS - 1) throw new Error(`${ATTEMPTS}踰?紐⑤몢 ?ㅽ뙣: ${err.message}. ?좎떆 ???ㅼ떆 ?ㅽ뻾?섏꽭??`);
+      if (attempt === ATTEMPTS - 1) throw new Error(`${ATTEMPTS}번 모두 실패: ${err.message}. 잠시 후 다시 실행하세요.`);
       const wait = Math.min(2000 * 2 ** attempt, 60_000);
-      console.warn(`[${attempt + 1}/${ATTEMPTS}] ${err.message} / ${wait / 1000}珥????ъ떆??);
+      console.warn(`[${attempt + 1}/${ATTEMPTS}] ${err.message} / ${wait / 1000}초 후 재시도`);
       await sleep(wait);
     }
   }
@@ -64,12 +66,13 @@ async function getJson(url, init = {}) {
 }
 
 const fetchOverpass = (query) => withRetry(async (attempt) => {
-  const url = MIRRORS[attempt % MIRRORS.length]; // ?ㅽ뙣???뚮쭏???ㅼ쓬 誘몃윭濡?  const json = await getJson(url, {
+  const url = MIRRORS[attempt % MIRRORS.length]; // 실패할 때마다 다음 미러로
+  const json = await getJson(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'data=' + encodeURIComponent(query),
   });
-  // Overpass??荑쇰━ ?쒓컙 珥덇낵?щ룄 200??二쇨퀬 remark???ㅻ쪟瑜??대뒗??
+  // Overpass는 쿼리 시간 초과여도 200을 주고 remark에 오류를 담는다.
   if (json.remark?.includes('error')) throw new Error(`${new URL(url).host} ${json.remark}`);
   return json;
 });
@@ -80,14 +83,14 @@ async function fetchElevations(points) {
     const locs = points.slice(i, i + 100).map((p) => `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`).join('|');
     const json = await withRetry(() => getJson(`${ELEVATION_API}?locations=${locs}`));
     out.push(...json.results.map((r) => r.elevation));
-    process.stdout.write(`\r?쒓퀬 ${out.length}/${points.length}`);
-    await sleep(1100); // 珥덈떦 1???쒗븳
+    process.stdout.write(`\r표고 ${out.length}/${points.length}`);
+    await sleep(1100); // 초당 1회 제한
   }
   console.log();
   return out;
 }
 
-// ?앹젏??留욌떯? way 議곌컖?ㅼ쓣 ?댁뼱 ?ロ엺 怨좊━濡?留뚮뱺??
+// 끝점이 맞닿은 way 조각들을 이어 닫힌 고리로 만든다.
 function stitch(parts) {
   const same = (a, b) => a.lat === b.lat && a.lon === b.lon;
   const rest = parts.map((p) => p.slice());
@@ -111,14 +114,14 @@ function stitch(parts) {
   return rings;
 }
 
-// ponytail: 硫?고뤃由ш낀??inner(援щ찉)??臾댁떆?섍퀬 outer留??대떎. 援щ찉 ?덈뒗 嫄대Ъ???섏삤硫?inner 泥섎━ 異붽?.
+// ponytail: 멀티폴리곤의 inner(구멍)는 무시하고 outer만 쓴다. 구멍 있는 건물이 나오면 inner 처리 추가.
 function outerRings(el) {
   if (el.type === 'way') return el.geometry ? [el.geometry] : [];
   const outers = el.members.filter((m) => m.type === 'way' && m.role !== 'inner' && m.geometry);
   return stitch(outers.map((m) => m.geometry));
 }
 
-// 吏앺? 洹쒖튃?대씪 寃쎄퀎??inner 怨좊━(罹좏띁??諛?援щ찉)??洹몃?濡?泥섎━?쒕떎.
+// 짝홀 규칙이라 경계의 inner 고리(캠퍼스 밖 구멍)도 그대로 처리된다.
 function inside([x, z], rings) {
   let c = false;
   for (const r of rings) {
@@ -137,8 +140,8 @@ const area = (pts) => Math.abs(pts.reduce((s, [x, z], i) => {
   return s + x * z2 - x2 * z;
 }, 0)) / 2;
 
-// ?좎쓣 寃쎄퀎 ??援ш컙留??④릿?? 寃쎄퀎瑜??섎뒗 泥????먯? ?섎굹???④꺼 ?뚮뜑?ш? 寃쎄퀎?먯꽌 ?섎씪 蹂댁씠寃??쒕떎.
-// ponytail: ???앹젏??紐⑤몢 諛뽰씤 湲??좊텇??罹좏띁?ㅻ? 媛濡쒖?瑜대㈃ 踰꾨젮吏꾨떎. ?꾩슂?섎㈃ ?좊텇-寃쎄퀎 援먯감 怨꾩궛?쇰줈 援먯껜.
+// 선을 경계 안 구간만 남긴다. 경계를 넘는 첫/끝 점은 하나씩 남겨 렌더러가 경계에서 잘라 보이게 한다.
+// ponytail: 양 끝점이 모두 밖인 긴 선분이 캠퍼스를 가로지르면 버려진다. 필요하면 선분-경계 교차 계산으로 교체.
 function trimToBoundary(points, rings) {
   const ins = points.map((p) => inside(p, rings));
   const runs = [];
@@ -160,31 +163,31 @@ function areaKind(t) {
       ['park', 'garden'].includes(t.leisure)) return 'grass';
   if (t.amenity === 'parking') return 'parking';
   if (t.place === 'square' || (t.highway && t.area === 'yes')) return 'paved';
-  return null; // stadium, sports_centre ???ㅻⅨ 硫댁쓣 媛먯떥??而⑦뀒?대꼫??洹몃━吏 ?딆쓬
+  return null; // stadium, sports_centre 등 다른 면을 감싸는 컨테이너는 그리지 않음
 }
 
 const raw = await fetchOverpass(QUERY);
 const rel = raw.elements.find((e) => e.type === 'relation' && e.id === REL_ID);
-if (!rel) throw new Error(`寃쎄퀎 relation ${REL_ID}??媛) ?묐떟???놁뒿?덈떎.`);
+if (!rel) throw new Error(`경계 relation ${REL_ID}이(가) 응답에 없습니다.`);
 
 const llRings = stitch(rel.members.filter((m) => m.type === 'way' && m.geometry).map((m) => m.geometry));
 const lats = llRings.flat().map((p) => p.lat);
 const lons = llRings.flat().map((p) => p.lon);
 const origin = { lat: (Math.min(...lats) + Math.max(...lats)) / 2, lon: (Math.min(...lons) + Math.max(...lons)) / 2 };
 
-// ponytail: ?깆옣諛⑺삎 ?ъ쁺. 罹좏띁????1km) 洹쒕え?먯꽑 ?ㅼ감媛 cm ?⑥쐞??異⑸텇. ??km ?댁긽?대㈃ UTM ?깆쑝濡?援먯껜.
+// ponytail: 등장방형 투영. 캠퍼스(약 1km) 규모에선 오차가 cm 단위라 충분. 수 km 이상이면 UTM 등으로 교체.
 const R = 6378137;
 const D2R = Math.PI / 180;
 const r1 = (v) => Math.round(v * 10) / 10;
 const toLocal = ({ lat, lon }) => [
-  r1((lon - origin.lon) * D2R * R * Math.cos(origin.lat * D2R)), // x: ?숈そ +
-  r1(-(lat - origin.lat) * D2R * R), // z: ?⑥そ +
+  r1((lon - origin.lon) * D2R * R * Math.cos(origin.lat * D2R)), // x: 동쪽 +
+  r1(-(lat - origin.lat) * D2R * R), // z: 남쪽 +
 ];
 const boundary = llRings.map((r) => r.map(toLocal));
 
-// 寃쎄퀎 bbox(+?ъ쑀 ??移?瑜???뒗 ?쒓퀬 寃⑹옄. heights[j * nx + i] = (x0 + i*step, z0 + j*step) 吏?? 理쒖???0 湲곗?.
-// ponytail: SRTM 30m???밸꼍쨌怨꾨떒??遺吏???꾨쭔??鍮꾪깉濡?萸됯컻吏怨? ?뀁? ?섎Т ?믪씠媛 ?욎뿬 紐?m ?믨쾶 ?섏삩??
-//           ???뺥솗???섎젮硫?援?넗吏由ъ젙蹂댁썝 5m DEM(?섎룞 ?ㅼ슫濡쒕뱶)?쇰줈 援먯껜.
+// 경계 bbox(+여유 한 칸)를 덮는 표고 격자. heights[j * nx + i] = (x0 + i*step, z0 + j*step) 지점, 최저점 0 기준.
+// ponytail: SRTM 30m라 옹벽·계단식 부지는 완만한 비탈로 뭉개지고, 숲은 나무 높이가 섞여 몇 m 높게 나온다.
+//           더 정확히 하려면 국토지리정보원 5m DEM(수동 다운로드)으로 교체.
 const bx = boundary.flat().map((p) => p[0]);
 const bz = boundary.flat().map((p) => p[1]);
 const x0 = Math.floor(Math.min(...bx) / TERRAIN_STEP - 1) * TERRAIN_STEP;
@@ -201,7 +204,7 @@ for (let j = 0; j < nz; j++) {
 }
 let elev = await fetchElevations(gridLL);
 let last = elev.find((e) => e != null) ?? 0;
-elev = elev.map((e) => (last = e ?? last)); // SRTM 寃곗륫(null)? 吏곸쟾 媛믪쑝濡?硫붿?
+elev = elev.map((e) => (last = e ?? last)); // SRTM 결측(null)은 직전 값으로 메움
 const base = Math.min(...elev);
 const terrain = { x0, z0, step: TERRAIN_STEP, nx, nz, base, heights: elev.map((e) => r1(e - base)) };
 
@@ -221,7 +224,7 @@ for (const el of raw.elements) {
   if (t.building) {
     const ring = outerRings(el).sort((a, b) => b.length - a.length)[0];
     if (!ring) continue;
-    const outline = ring.map(toLocal).slice(0, -1); // ?ル뒗 ???쒓굅
+    const outline = ring.map(toLocal).slice(0, -1); // 닫는 점 제거
     if (!inside(centroid(outline), boundary)) continue;
     const floors = parseInt(t['building:levels'], 10);
     buildings.push({
@@ -245,10 +248,10 @@ for (const el of raw.elements) {
 }
 buildings.sort((a, b) => a.id.localeCompare(b.id));
 
-// ???붿냼????以? ?대쫫(name)??李얠븘 怨좎튂湲??쎄쾶.
+// 한 요소당 한 줄: 이름(name)을 찾아 고치기 쉽게.
 const list = (arr) => '[\n' + arr.map((o) => '    ' + JSON.stringify(o)).join(',\n') + '\n  ]';
 writeFileSync(OUT, `{
-  "attribution": "짤 OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright) / ?쒓퀬: NASA SRTM 30m (?쇰툝由??꾨찓??, OpenTopoData",
+  "attribution": "© OpenStreetMap contributors, ODbL 1.0 (https://www.openstreetmap.org/copyright) / 표고: NASA SRTM 30m (퍼블릭 도메인), OpenTopoData",
   "source": "Overpass API relation ${REL_ID} + ${ELEVATION_API}, ${new Date().toISOString().slice(0, 10)}",
   "origin": ${JSON.stringify(origin)},
   "terrain": ${JSON.stringify(terrain)},
@@ -259,6 +262,6 @@ writeFileSync(OUT, `{
 }
 `);
 
-console.log(`嫄대Ъ ${buildings.length}媛?(?대쫫 ?덉쓬 ${buildings.filter((b) => b.name).length}), ?꾨줈 ${roads.length}媛? 硫?${areas.length}媛?);
-console.log(`吏??${nx}횞${nz} 寃⑹옄 (${TERRAIN_STEP}m), ?쒓퀬 ${base}~${Math.max(...elev)}m`);
-console.table(buildings.map((b) => ({ id: b.id, name: b.name, osm: b.osm, floors: b.floors, '硫댁쟻(m짼)': Math.round(area(b.outline)) })));
+console.log(`건물 ${buildings.length}개 (이름 있음 ${buildings.filter((b) => b.name).length}), 도로 ${roads.length}개, 면 ${areas.length}개`);
+console.log(`지형 ${nx}×${nz} 격자 (${TERRAIN_STEP}m), 표고 ${base}~${Math.max(...elev)}m`);
+console.table(buildings.map((b) => ({ id: b.id, name: b.name, osm: b.osm, floors: b.floors, '면적(m²)': Math.round(area(b.outline)) })));
